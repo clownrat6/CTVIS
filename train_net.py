@@ -65,8 +65,8 @@ def set_seed(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)  # for multi-GPU setups
-    torch.backends.cudnn.deterministic = False
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
@@ -241,12 +241,11 @@ class Trainer(DefaultTrainer):
 
     @classmethod
     def build_test_loader(cls, cfg, dataset_name):
-        dataset_name = cfg.DATASETS.TEST[0]
-        if dataset_name.startswith('coco'):
-            raise NotImplementedError
-        elif dataset_name.startswith('ytvis') or dataset_name.startswith('ovis') or dataset_name.startswith('hqytvis'):
-            mapper = YTVISDatasetMapper(cfg, is_train=False)
-        return build_detection_test_loader(cfg, dataset_name, mapper=mapper)
+        mapper = YTVISDatasetMapper(cfg, is_train=False)
+        test_loader = build_detection_test_loader(cfg, dataset_name, mapper=mapper)
+        test_loader = CUDADataLoader(test_loader)
+
+        return test_loader
 
     @classmethod
     def build_lr_scheduler(cls, cfg, optimizer):
@@ -342,8 +341,12 @@ class Trainer(DefaultTrainer):
             optimizer = maybe_add_gradient_clipping(cfg, optimizer)
         return optimizer
 
+    def test(self, cfg, model, evaluators=None):
+        evaluators = [self.build_evaluator(cfg, dataset_name, output_folder=os.path.join(cfg.OUTPUT_DIR, f"model_{self.iter:07d}", dataset_name)) for dataset_name in cfg.DATASETS.TEST]
+        return super().test(cfg, model, evaluators)
+
     @classmethod
-    def test(cls, cfg, model, evaluators=None):
+    def eval(cls, cfg, model, evaluators=None):
         """
         Evaluate the given model. The given model is expected to already contain
         weights to evaluate.
@@ -356,41 +359,27 @@ class Trainer(DefaultTrainer):
         Returns:
             dict: a dict of result metrics
         """
-        from torch.cuda.amp import autocast
         logger = logging.getLogger(__name__)
         if isinstance(evaluators, DatasetEvaluator):
             evaluators = [evaluators]
         if evaluators is not None:
-            assert len(cfg.DATASETS.TEST) == len(evaluators), "{} != {}".format(
-                len(cfg.DATASETS.TEST), len(evaluators)
-            )
+            assert len(cfg.DATASETS.TEST) == len(evaluators), "{} != {}".format(len(cfg.DATASETS.TEST), len(evaluators))
+        else:
+            evaluators = [cls.build_evaluator(cfg, dataset_name, output_folder=os.path.join(cfg.OUTPUT_DIR, dataset_name)) for dataset_name in cfg.DATASETS.TEST]
 
         results = OrderedDict()
         for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
             data_loader = cls.build_test_loader(cfg, dataset_name)
             # When evaluators are passed in as arguments,
             # implicitly assume that evaluators can be created before data_loader.
-            if evaluators is not None:
-                evaluator = evaluators[idx]
-            else:
-                try:
-                    evaluator = cls.build_evaluator(cfg, dataset_name)
-                except NotImplementedError:
-                    logger.warning(
-                        "No evaluator found. Use `DefaultTrainer.test(evaluators=)`, "
-                        "or implement its `build_evaluator` method."
-                    )
-                    results[dataset_name] = {}
-                    continue
+            evaluator = evaluators[idx]
             with torch.amp.autocast("cuda"):
                 results_i = inference_on_dataset(model, data_loader, evaluator)
             results[dataset_name] = results_i
             if comm.is_main_process():
                 assert isinstance(
-                    results_i, dict
-                ), "Evaluator must return a dict on the main process. Got {} instead.".format(
-                    results_i
-                )
+                    results_i,
+                    dict), "Evaluator must return a dict on the main process. Got {} instead.".format(results_i)
                 logger.info("Evaluation results for {} in csv format:".format(dataset_name))
                 print_csv_format(results_i)
 
@@ -407,6 +396,14 @@ def setup(args):
     add_ctvis_config(cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
+
+    if 'OUTPUT_DIR' not in args.opts:
+        work_dir_prefix = os.path.dirname(args.config_file).replace('configs/', '')
+        work_dir_suffix = os.path.splitext(os.path.basename(args.config_file))[0]
+        cfg.OUTPUT_DIR = f'work_dirs/{work_dir_prefix}/{work_dir_suffix}'
+        if args.eval_only:
+            cfg.OUTPUT_DIR = os.path.join(cfg.OUTPUT_DIR, 'eval')
+
     cfg.freeze()
     default_setup(cfg, args)
     # Setup logger for "mask_former" module
@@ -424,7 +421,7 @@ def main(args):
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
             cfg.MODEL.WEIGHTS, resume=args.resume
         )
-        res = Trainer.test(cfg, model)
+        res = Trainer.eval(cfg, model)
         if cfg.TEST.AUG.ENABLED:
             raise NotImplementedError
         if comm.is_main_process():
