@@ -73,7 +73,7 @@ def retry_if_cuda_oom(func):
         logger.info("Attempting to copy inputs to CPU due to CUDA OOM")
         new_args = (maybe_to_cpu(x) for x in args)
         new_kwargs = {k: maybe_to_cpu(v) for k, v in kwargs.items()}
-        with autocast(enabled=False):
+        with torch.amp.autocast("cuda", enabled=False):
             return func(*new_args, **new_kwargs)
 
     return wrapped
