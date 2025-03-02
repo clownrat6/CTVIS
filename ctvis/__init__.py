@@ -5,4 +5,4 @@ from .utils import *
 # from .ctvis_model import CTVISModel
 # from .modeling import *
 
-from .models.ctvis import CTVISModel
+from .models.ctvis import CTVISModel, CTVISTARModel
