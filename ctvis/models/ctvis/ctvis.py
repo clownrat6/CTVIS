@@ -133,11 +133,13 @@ class CTVISModel(MaskFormer):
         outputs = [None]
         for idx, image in enumerate(images.tensor):
             features = self.backbone(image[None])
-            mask_features, _, multi_scale_features = self.sem_seg_head.pixel_decoder(features)
+            mask_features, _, multi_scale_features = self.sem_seg_head.pixel_decoder.forward_features(features)
             output = self.sem_seg_head.predictor(multi_scale_features, mask_features)
             # video_dict is edited
-            self.tracker.online_inference(idx, outputs, class_embed, video_dict)
+            self.tracker.online_inference(idx, output, class_embed, video_dict)
             outputs.append(output)
+        outputs = outputs[1:]
+
 
         logits_list = []
         masks_list = []
@@ -152,7 +154,7 @@ class CTVISModel(MaskFormer):
             logits_i = logits_i.mean(0) if self.tracker.temporal_score_type == 'mean' else logits_i.max(0)[0]
             logits_list.append(logits_i)
 
-            masks_list_i = [mask if mask is not None else det_outputs['pred_masks'].new_zeros(det_outputs['pred_masks'].shape[-2:]) for mask in mask_list_ori]
+            masks_list_i = [mask if mask is not None else output['pred_masks'].new_zeros(output['pred_masks'].shape[-2:]) for mask in mask_list_ori]
             masks_list_i = torch.stack(masks_list_i, dim=0)
             masks_list.append(masks_list_i)
 
@@ -179,7 +181,7 @@ class CTVISModel(MaskFormer):
         height = input_per_image.get("height", image_size[0])
         width = input_per_image.get("width", image_size[1])
 
-        del outputs, batched_inputs, images, det_outputs
+        del outputs, batched_inputs, images
 
         video_output = self.inference_video(mask_cls_results, mask_pred_results, image_tensor_size, image_size,
                                             height, width, to_store)
