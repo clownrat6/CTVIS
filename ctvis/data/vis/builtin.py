@@ -37,11 +37,11 @@ _PREDEFINED_SPLITS_YTVIS_2019 = {
 # ==== Predefined splits for YTVIS 2021 ===========
 _PREDEFINED_SPLITS_YTVIS_2021 = {
     "ytvis_2021_train": ("ytvis_2021/train/JPEGImages",
-                         "ytvis_2021/train.json"),
+                         "ytvis_2021/train/instances.json"),
     "ytvis_2021_val": ("ytvis_2021/valid/JPEGImages",
-                       "ytvis_2021/valid.json"),
+                       "ytvis_2021/valid/instances.json"),
     "ytvis_2021_test": ("ytvis_2021/test/JPEGImages",
-                        "ytvis_2021/test.json")
+                        "ytvis_2021/test/instances.json")
 }
 
 # ==== Predefined splits for YTVIS 2022 ===========
@@ -57,11 +57,11 @@ _PREDEFINED_SPLITS_YTVIS_2022 = {
 # ==== Predefined splits for OVIS ===========
 _PREDEFINED_SPLITS_OVIS = {
     "ovis_train": ("ovis/train",
-                   "ovis/annotations/train.json"),
+                   "ovis/annotations_train.json"),
     "ovis_val": ("ovis/valid",
-                 "ovis/annotations/valid.json"),
+                 "ovis/annotations_valid.json"),
     "ovis_test": ("ovis/test",
-                  "ovis/annotations/test.json")
+                  "ovis/annotations_test.json")
 }
 
 # ==== Predefined splits for COCO PSEUDO ===========
